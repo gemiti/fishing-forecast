@@ -1,0 +1,88 @@
+const W={pressure_trend:0.25,temp_trend:0.20,time_of_day:0.15,moon_phase:0.10,wind:0.10,precipitation:0.10,season:0.05,water:0.05};
+const S={pressure_trend:{stable:100,slow_rise:50,slow_fall:40,sharp_rise:20,sharp_fall:10,before_front:60},temp_trend:{stable:100,rise_1_3:80,fall_1_3:80,rise_3_5:50,fall_3_5:50,rise_5plus:20,fall_5plus:20,extreme_low:40,extreme_high:35},time_of_day:{dawn:100,dusk:95,night:70,overcast_day:55,sunny_noon_hot:40,sunny_noon_cool:35,deep_night:30},moon_phase:{waxing:100,waning:90,first_quarter:75,last_quarter:75,new:60,full:35,super:50},wind:{light_breeze:100,moderate_warm:85,calm:70,cold_dir:55,strong:40,storm:20,gusty_front:60},precipitation:{light_rain:100,overcast:85,partly_cloudy:70,clear_calm:55,heavy_rain:40,sleet:30,cold_snap:25,fog:50},season:{pre_spawn:100,autumn_feed:90,summer_stable:80,winter_ice:70,spawn:50,post_spawn:40,summer_stagnation:35,winter_oxygen:30},water:{clear:100,slightly_murky:85,murky_stable:70,very_murky:55,low_level:45,flood:40,bloom:30,ice:50}};
+
+function degToDir(d){const dirs=['N','NE','E','SE','S','SW','W','NW'];return d==null?'calm':dirs[Math.round(d/45)%8]}
+function windCat(dir,spd){if(spd<1)return'calm';if(spd<=4)return(dir=='S'||dir=='SW'||dir=='W')?'light_breeze':'cold_dir';if(spd<=6)return'moderate_warm';if(spd<=10)return'strong';return'storm'}
+function precipCat(mm,wc){if([95,96,99].includes(wc))return'heavy_rain';if([71,73,75,77,85,86].includes(wc))return'sleet';if(mm>5)return'heavy_rain';if(mm>0.5)return'light_rain';if([45,48].includes(wc))return'fog';if([0,1].includes(wc))return'clear_calm';if([2,3].includes(wc))return'partly_cloudy';return'overcast'}
+function cloudCat(pct,pc){if(['light_rain','heavy_rain','sleet'].includes(pc))return pc;if(pct<20)return'clear_calm';if(pct<60)return'partly_cloudy';return'overcast'}
+function todCat(h,cc){if(h>=4&&h<7)return'dawn';if(h>=7&&h<11)return(cc=='overcast'||cc=='light_rain')?'overcast_day':'sunny_noon_cool';if(h>=11&&h<16)return(cc=='overcast'||cc=='light_rain')?'overcast_day':'sunny_noon_hot';if(h>=16&&h<19)return(cc=='overcast'||cc=='light_rain')?'overcast_day':'sunny_noon_cool';if(h>=19&&h<21)return'dusk';if(h>=21&&h<23)return'night';return'deep_night'}
+function seasonCat(m){if([3,4,5].includes(m))return'pre_spawn';if([6,7,8].includes(m))return'summer_stable';if([9,10,11].includes(m))return'autumn_feed';return'winter_ice'}
+function moonCat(d){const k=new Date(2026,0,1),days=(d-k)/86400000,age=days%29.53059;if(age<1)return'new';if(age<7)return'waxing';if(age<8)return'first_quarter';if(age<14)return'waxing';if(age<16)return'full';if(age<22)return'waning';if(age<23)return'last_quarter';if(age<29)return'waning';return'new'}
+function heur(c){let t=0;for(let f in W){t+=(S[f][c[f]]||50)*W[f];}return t}
+function scoreCol(s){if(s>=80)return'#22c55e';if(s>=60)return'#84cc16';if(s>=40)return'#f59e0b';if(s>=20)return'#f97316';return'#ef4444'}
+function scoreLbl(s){if(s>=80)return'Отличный';if(s>=60)return'Хороший';if(s>=40)return'Средний';if(s>=20)return'Слабый';return'Почти нет'}
+
+async function geo(city){
+  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ru`);
+  const d=await r.json();return d.results?.[0]||null;
+}
+async function weather(lat,lon){
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,weather_code&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,weather_code&timezone=auto&past_days=1&forecast_days=2`;
+  const r=await fetch(url);return r.json();
+}
+
+function calcHourly(data){
+  const h=data.hourly,n=h.time.length,out=[];
+  const now=new Date();now.setMinutes(0,0,0);
+  for(let i=0;i<n;i++){
+    const t=new Date(h.time[i]+':00');
+    if(t<new Date(now-3600000))continue;
+    if(out.length>=48)break;
+    const p=h.pressure_msl[i],temp=h.temperature_2m[i],ws=h.wind_speed_10m[i],wd=h.wind_direction_10m[i],cc=h.cloud_cover[i],pr=h.precipitation[i],wc=h.weather_code[i];
+    const i6=Math.max(0,i-6),i12=Math.max(0,i-12);
+    const dp6=(p-h.pressure_msl[i6])/1.333,dp12=(p-h.pressure_msl[i12])/1.333;
+    const dt6=temp-h.temperature_2m[i6],dt12=temp-h.temperature_2m[i12];
+    let pt='stable';if(dp12>5)pt='sharp_rise';else if(dp12<-5)pt='sharp_fall';else if(dp6>2)pt='slow_rise';else if(dp6<-2)pt='slow_fall';
+    let tt='stable';if(Math.abs(dt12)>5)tt=dt12>0?'rise_5plus':'fall_5plus';else if(Math.abs(dt12)>3)tt=dt12>0?'rise_3_5':'fall_3_5';else if(Math.abs(dt6)>1)tt=dt6>0?'rise_1_3':'fall_1_3';
+    const wdir=degToDir(wd),wind=windCat(wdir,ws),pc=precipCat(pr,wc),cl=cloudCat(cc,pc),tod=todCat(t.getHours(),cl),season=seasonCat(t.getMonth()+1),moon=moonCat(t);
+    const cond={pressure_trend:pt,temp_trend:tt,time_of_day:tod,moon_phase:moon,wind:wind,precipitation:cl,season:season,water:'clear'};
+    const score=heur(cond);
+    out.push({t,day:t.getDate()+'/'+String(t.getMonth()+1).padStart(2,'0'),hour:t.getHours(),score,cond,meta:{p:Math.round(p/1.333*10)/10,temp,ws,wind:wdir,cc,pr}});
+  }
+  return out;
+}
+
+function findSlots(hourly){
+  const slots=[];let cur=null,scores=[];
+  for(let h of hourly){
+    if(h.score>=60){if(!cur)cur=h;scores.push(h.score);}
+    else{if(cur&&scores.length>=2){slots.push({s:cur,e:hourly[hourly.indexOf(h)-1],avg:scores.reduce((a,b)=>a+b,0)/scores.length,max:Math.max(...scores),dur:scores.length});}cur=null;scores=[];}
+  }
+  if(cur&&scores.length>=2){slots.push({s:cur,e:hourly[hourly.length-1],avg:scores.reduce((a,b)=>a+b,0)/scores.length,max:Math.max(...scores),dur:scores.length});}
+  return slots.sort((a,b)=>b.avg-a.avg).slice(0,5);
+}
+
+async function run(){
+  const city=document.getElementById('city').value.trim();
+  if(!city)return;
+  document.getElementById('btn').disabled=true;
+  document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('result').classList.add('hidden');
+  document.getElementById('error').classList.add('hidden');
+  try{
+    const g=await geo(city);if(!g)throw new Error('Город не найден');
+    const w=await weather(g.latitude,g.longitude);
+    const hourly=calcHourly(w);
+    if(!hourly.length)throw new Error('Нет данных');
+    const nowSlot=hourly.find(h=>h.hour===new Date().getHours())||hourly[0];
+    const score=nowSlot.score;
+    const col=scoreCol(score);
+    document.getElementById('score-pct').textContent=score.toFixed(1)+'%';
+    document.getElementById('score-pct').style.color=col;
+    document.getElementById('score-label').textContent=scoreLbl(score);
+    document.getElementById('score-bar').style.width=score+'%';
+    document.getElementById('score-bar').style.background=col;
+    document.getElementById('weather-grid').innerHTML=`<div>Давление: <span>${nowSlot.meta.p} мм</span></div><div>Температура: <span>${nowSlot.meta.temp}°C</span></div><div>Ветер: <span>${nowSlot.meta.wind} ${nowSlot.meta.ws} м/с</span></div><div>Облачность: <span>${nowSlot.meta.cc}%</span></div><div>Осадки: <span>${nowSlot.meta.pr} мм/ч</span></div><div>Луна: <span>${nowSlot.cond.moon_phase}</span></div>`;
+    const slots=findSlots(hourly);
+    document.getElementById('slots-list').innerHTML=slots.map((sl,i)=>{const c=scoreCol(sl.avg);return`<div class="slot-card"><div class="slot-info"><div class="slot-num" style="background:${c}">${i+1}</div><div><div class="slot-time">${String(sl.s.hour).padStart(2,'0')}:00 – ${String(sl.e.hour).padStart(2,'0')}:00</div><div class="slot-dur">${sl.dur} ч · пик ${sl.max.toFixed(0)}%</div></div></div><div class="slot-score"><div class="val" style="color:${c}">${sl.avg.toFixed(1)}%</div><div class="txt">${scoreLbl(sl.avg)}</div></div></div>`;}).join('')||'<div style="color:var(--text-2);font-size:13px;padding:8px">Хороших слотов не найдено</div>';
+    document.getElementById('hourly').innerHTML=hourly.map(h=>{const c=scoreCol(h.score);return`<div class="hour-item"><div class="d">${h.day}</div><div class="h">${String(h.hour).padStart(2,'0')}:00</div><div class="bar-bg"><div class="bar-fill" style="height:${h.score}%;background:${c}"></div></div><div class="s" style="color:${c}">${h.score.toFixed(0)}</div></div>`;}).join('');
+    document.getElementById('result').classList.remove('hidden');
+  }catch(e){
+    document.getElementById('error').textContent=e.message;
+    document.getElementById('error').classList.remove('hidden');
+  }
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('btn').disabled=false;
+}
+
+run();
