@@ -53,17 +53,15 @@ async function geo(city,preferredCountry='RU'){
   return d.results[0];
 }
 async function weather(lat,lon){
-  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,weather_code&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,weather_code&timezone=auto&past_days=1&forecast_days=2`;
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,weather_code&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,weather_code&timezone=auto&past_days=1&forecast_days=5`;
   const r=await fetch(url);return r.json();
 }
 
+// Все данные без фильтра по времени (нужны для графика за весь день)
 function calcHourly(data){
   const h=data.hourly,n=h.time.length,out=[];
-  const now=new Date();now.setMinutes(0,0,0);
   for(let i=0;i<n;i++){
     const t=new Date(h.time[i]+':00');
-    if(t<new Date(now-3600000))continue;
-    if(out.length>=48)break;
     const p=h.pressure_msl[i],temp=h.temperature_2m[i],ws=h.wind_speed_10m[i],wd=h.wind_direction_10m[i],cc=h.cloud_cover[i],pr=h.precipitation[i],wc=h.weather_code[i];
     const i6=Math.max(0,i-6),i12=Math.max(0,i-12);
     const dp6=(p-h.pressure_msl[i6])/1.333,dp12=(p-h.pressure_msl[i12])/1.333;
@@ -88,28 +86,58 @@ function findSlots(hourly){
   return slots.sort((a,b)=>a.s.t-b.s.t).slice(0,5);
 }
 
-// ===== SVG CHART =====
-function renderChart(data){
-  if(!data.length)return'';
+function groupByDay(hourly){
+  const m={};
+  hourly.forEach(h=>{if(!m[h.day])m[h.day]=[];m[h.day].push(h);});
+  return Object.values(m);
+}
+
+// ===== DAY CHART =====
+let activeDayIndex=0;
+let chartDays=[];
+
+function renderDayTabs(days){
+  chartDays=days;
+  const container=document.getElementById('day-tabs');
+  const dow=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+  container.innerHTML=days.map((day,i)=>{
+    const t=day[0].t;
+    const isActive=i===activeDayIndex;
+    return`<div class="day-tab ${isActive?'active':''}" data-index="${i}">
+      <div class="dow">${dow[t.getDay()]}</div>
+      <div class="date">${t.getDate()}</div>
+    </div>`;
+  }).join('');
+  container.querySelectorAll('.day-tab').forEach(tab=>{
+    tab.addEventListener('click',()=>{
+      activeDayIndex=parseInt(tab.dataset.index);
+      renderDayTabs(chartDays);
+      document.getElementById('hourly').innerHTML=renderDayChart(chartDays[activeDayIndex]);
+    });
+  });
+}
+
+function renderDayChart(dayData){
+  if(!dayData||!dayData.length)return'';
+  const pts=dayData.filter((_,i)=>i%3===0);
+  if(!pts.length)return'';
   const W=800,H=280;
-  const pad={l:48,r:24,t:28,b:68};
+  const pad={l:48,r:24,t:28,b:50};
   const cw=W-pad.l-pad.r;
   const ch=H-pad.t-pad.b;
-  const x=i=>pad.l+(i/(data.length-1))*cw;
+  const x=i=>pad.l+(i/(pts.length-1))*cw;
   const y=v=>pad.t+ch-(v/100)*ch;
-  const pts=data.map((d,i)=>({x:x(i),y:y(d.score)}));
+  const points=pts.map((d,i)=>({x:x(i),y:y(d.score)}));
 
-  // smooth cubic bezier
-  let lineD=`M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for(let i=0;i<pts.length-1;i++){
-    const p0=pts[i===0?0:i-1],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||p2;
+  let lineD=`M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  for(let i=0;i<points.length-1;i++){
+    const p0=points[i===0?0:i-1],p1=points[i],p2=points[i+1],p3=points[i+2]||p2;
     const cp1x=p1.x+(p2.x-p0.x)/6,cp1y=p1.y+(p2.y-p0.y)/6;
     const cp2x=p2.x-(p3.x-p1.x)/6,cp2y=p2.y-(p3.y-p1.y)/6;
     lineD+=` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
   }
-  const areaD=lineD+` L ${pts[pts.length-1].x.toFixed(1)} ${pad.t+ch} L ${pts[0].x.toFixed(1)} ${pad.t+ch} Z`;
+  const areaD=lineD+` L ${points[points.length-1].x.toFixed(1)} ${pad.t+ch} L ${points[0].x.toFixed(1)} ${pad.t+ch} Z`;
 
-  // grid + labels (larger font)
   let grid='',yLabels='';
   [0,25,50,75,100].forEach(t=>{
     const yy=y(t);
@@ -117,18 +145,15 @@ function renderChart(data){
     yLabels+=`<text x="${pad.l-10}" y="${yy+5}" text-anchor="end" fill="#94a3b8" font-size="12" font-weight="500">${t}</text>`;
   });
 
-  // points & x labels (larger font)
-  let points='',xLabels='';
-  data.forEach((d,i)=>{
-    const px=pts[i].x,py=pts[i].y;
+  let circles='',xLabels='';
+  pts.forEach((d,i)=>{
+    const px=points[i].x,py=points[i].y;
     const col=scoreCol(d.score);
-    points+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${col}" stroke="#0f172a" stroke-width="2.5"/>`;
-    xLabels+=`<text x="${px.toFixed(1)}" y="${H-38}" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="500">${String(d.hour).padStart(2,'0')}:00</text>`;
-    xLabels+=`<text x="${px.toFixed(1)}" y="${H-18}" text-anchor="middle" fill="#64748b" font-size="11">${d.day}</text>`;
+    circles+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${col}" stroke="#0f172a" stroke-width="2.5"/>`;
+    xLabels+=`<text x="${px.toFixed(1)}" y="${H-20}" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="500">${String(d.hour).padStart(2,'0')}:00</text>`;
   });
 
-  // dynamic gradient matching score scale
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;">
+  return`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;">
     <defs>
       <linearGradient id="areaGrad" x1="0" y1="1" x2="0" y2="0">
         <stop offset="0%" stop-color="#ef4444" stop-opacity="0.35"/>
@@ -142,143 +167,102 @@ function renderChart(data){
     ${yLabels}
     <path d="${areaD}" fill="url(#areaGrad)"/>
     <path d="${lineD}" stroke="#e2e8f0" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    ${points}
+    ${circles}
     ${xLabels}
   </svg>`;
 }
-let selectedGeo = null;
-let activeSuggestionIndex = -1;
 
-function debounce(fn, ms) {
+// ===== AUTOCOMPLETE =====
+let selectedGeo=null;
+let activeSuggestionIndex=-1;
+
+function debounce(fn,ms){
   let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
+  return(...args)=>{clearTimeout(t);t=setTimeout(()=>fn(...args),ms);};
 }
 
-async function suggestCity(query) {
-  const box = document.getElementById('suggestions');
-  if (!query || query.length < 2) {
-    box.classList.add('hidden');
-    return;
-  }
+async function suggestCity(query){
+  const box=document.getElementById('suggestions');
+  if(!query||query.length<2){box.classList.add('hidden');return;}
   box.classList.remove('hidden');
-  box.innerHTML = '<div class="suggestion-loading">Поиск…</div>';
-  activeSuggestionIndex = -1;
-  try {
-    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=ru`;
-    const r = await fetch(url);
-    const d = await r.json();
-    if (!d.results || !d.results.length) {
-      box.innerHTML = '<div class="suggestion-empty">Ничего не найдено</div>';
-      return;
-    }
+  box.innerHTML='<div class="suggestion-loading">Поиск…</div>';
+  activeSuggestionIndex=-1;
+  try{
+    const url=`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=ru`;
+    const r=await fetch(url);
+    const d=await r.json();
+    if(!d.results||!d.results.length){box.innerHTML='<div class="suggestion-empty">Ничего не найдено</div>';return;}
     renderSuggestions(d.results);
-  } catch (e) {
-    box.classList.add('hidden');
-  }
+  }catch(e){box.classList.add('hidden');}
 }
 
-function renderSuggestions(results) {
-  const box = document.getElementById('suggestions');
-  box.innerHTML = results.map((x, i) => {
-    const meta = [x.admin1, x.country].filter(Boolean).join(', ');
-    return `<div class="suggestion-item" data-index="${i}" data-json="${encodeURIComponent(JSON.stringify(x))}">
+function renderSuggestions(results){
+  const box=document.getElementById('suggestions');
+  box.innerHTML=results.map((x,i)=>{
+    const meta=[x.admin1,x.country].filter(Boolean).join(', ');
+    return`<div class="suggestion-item" data-index="${i}" data-json="${encodeURIComponent(JSON.stringify(x))}">
       <div><div class="suggestion-name">${x.name}</div><div class="suggestion-meta">${meta}</div></div>
       <div class="suggestion-meta">${x.latitude.toFixed(2)}, ${x.longitude.toFixed(2)}</div>
     </div>`;
   }).join('');
-  box.querySelectorAll('.suggestion-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const data = JSON.parse(decodeURIComponent(el.dataset.json));
-      selectCity(data);
-    });
-    el.addEventListener('mouseenter', () => {
-      activeSuggestionIndex = parseInt(el.dataset.index);
-      updateActiveSuggestion();
-    });
+  box.querySelectorAll('.suggestion-item').forEach(el=>{
+    el.addEventListener('click',()=>{selectCity(JSON.parse(decodeURIComponent(el.dataset.json)));});
+    el.addEventListener('mouseenter',()=>{activeSuggestionIndex=parseInt(el.dataset.index);updateActiveSuggestion();});
   });
 }
 
-function updateActiveSuggestion() {
-  const box = document.getElementById('suggestions');
-  box.querySelectorAll('.suggestion-item').forEach((el, i) => {
-    el.classList.toggle('active', i === activeSuggestionIndex);
+function updateActiveSuggestion(){
+  document.getElementById('suggestions').querySelectorAll('.suggestion-item').forEach((el,i)=>{
+    el.classList.toggle('active',i===activeSuggestionIndex);
   });
 }
 
-function selectCity(result) {
-  selectedGeo = result;
-  document.getElementById('city').value = result.name;
+function selectCity(result){
+  selectedGeo=result;
+  document.getElementById('city').value=result.name;
   document.getElementById('suggestions').classList.add('hidden');
-  activeSuggestionIndex = -1;
+  activeSuggestionIndex=-1;
   run();
 }
 
-function hideSuggestions() {
+function hideSuggestions(){
   document.getElementById('suggestions').classList.add('hidden');
-  activeSuggestionIndex = -1;
+  activeSuggestionIndex=-1;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const input = document.getElementById('city');
-  const debouncedSuggest = debounce(suggestCity, 300);
-
-  input.addEventListener('input', () => {
-    selectedGeo = null;
-    debouncedSuggest(input.value.trim());
+document.addEventListener('DOMContentLoaded',()=>{
+  const input=document.getElementById('city');
+  const debouncedSuggest=debounce(suggestCity,300);
+  input.addEventListener('input',()=>{selectedGeo=null;debouncedSuggest(input.value.trim());});
+  input.addEventListener('keydown',(e)=>{
+    const box=document.getElementById('suggestions');
+    const items=box.querySelectorAll('.suggestion-item');
+    if(box.classList.contains('hidden')||!items.length){if(e.key==='Enter'){e.preventDefault();run();}return;}
+    if(e.key==='ArrowDown'){e.preventDefault();activeSuggestionIndex=(activeSuggestionIndex+1)%items.length;updateActiveSuggestion();}
+    else if(e.key==='ArrowUp'){e.preventDefault();activeSuggestionIndex=(activeSuggestionIndex-1+items.length)%items.length;updateActiveSuggestion();}
+    else if(e.key==='Enter'){e.preventDefault();if(activeSuggestionIndex>=0&&items[activeSuggestionIndex]){selectCity(JSON.parse(decodeURIComponent(items[activeSuggestionIndex].dataset.json)));}else if(items.length){selectCity(JSON.parse(decodeURIComponent(items[0].dataset.json)));}}
+    else if(e.key==='Escape'){hideSuggestions();}
   });
-
-  input.addEventListener('keydown', (e) => {
-    const box = document.getElementById('suggestions');
-    const items = box.querySelectorAll('.suggestion-item');
-    if (box.classList.contains('hidden') || !items.length) {
-      if (e.key === 'Enter') { e.preventDefault(); run(); }
-      return;
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      activeSuggestionIndex = (activeSuggestionIndex + 1) % items.length;
-      updateActiveSuggestion();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      activeSuggestionIndex = (activeSuggestionIndex - 1 + items.length) % items.length;
-      updateActiveSuggestion();
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]) {
-        const data = JSON.parse(decodeURIComponent(items[activeSuggestionIndex].dataset.json));
-        selectCity(data);
-      } else if (items.length) {
-        const data = JSON.parse(decodeURIComponent(items[0].dataset.json));
-        selectCity(data);
-      }
-    } else if (e.key === 'Escape') {
-      hideSuggestions();
-    }
-  });
-
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.search-wrap')) hideSuggestions();
-  });
+  document.addEventListener('click',(e)=>{if(!e.target.closest('.search-wrap'))hideSuggestions();});
 });
 
 async function run(){
   const city=document.getElementById('city').value.trim();
-  if(!city && !selectedGeo)return;
+  if(!city&&!selectedGeo)return;
   document.getElementById('btn').disabled=true;
   document.getElementById('loading').classList.remove('hidden');
   document.getElementById('result').classList.add('hidden');
   document.getElementById('error').classList.add('hidden');
   try{
-    let g = selectedGeo;
-    if(!g) g = await geo(city);
-    if(!g) throw new Error('Город не найден');
+    let g=selectedGeo;
+    if(!g)g=await geo(city);
+    if(!g)throw new Error('Город не найден');
     const w=await weather(g.latitude,g.longitude);
-    const hourly=calcHourly(w);
-    if(!hourly.length)throw new Error('Нет данных');
-    const nowSlot=hourly.find(h=>h.hour===new Date().getHours())||hourly[0];
+    const allHourly=calcHourly(w);
+    if(!allHourly.length)throw new Error('Нет данных');
+
+    const now=new Date();now.setMinutes(0,0,0);
+    const nowSlot=allHourly.find(h=>h.hour===now.getHours()&&h.day===`${now.getDate()}/${String(now.getMonth()+1).padStart(2,'0')}`)||allHourly[0];
     const score=nowSlot.score;
     const col=scoreCol(score);
     const locName=[g.name,g.admin1,g.country].filter(Boolean).join(', ');
@@ -291,29 +275,20 @@ async function run(){
     const updateTime=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
     document.getElementById('weather-grid').innerHTML=`<div>Давление: <span>${nowSlot.meta.p} мм</span></div><div>Температура: <span>${nowSlot.meta.temp}°C</span></div><div>Ветер: <span>${nowSlot.meta.wind} ${nowSlot.meta.ws} м/с</span></div><div>Облачность: <span>${nowSlot.meta.cc}%</span></div><div>Осадки: <span>${nowSlot.meta.pr} мм/ч</span></div><div>Обновлено: <span>${updateTime}</span></div>`;
 
-    const slots=findSlots(hourly);
+    // Slots: 48 hours from now
+    const futureHourly=allHourly.filter(h=>h.t>=now);
+    const slots=findSlots(futureHourly);
     document.getElementById('slots-list').innerHTML=slots.map((sl,i)=>{
       const c=scoreCol(sl.avg);
       const peakC=scoreCol(sl.max);
-      return`<div class="slot-card">
-        <div class="slot-info">
-          <div class="slot-num" style="background:${c}">${i+1}</div>
-          <div>
-            <div class="slot-date">${sl.date}</div>
-            <div class="slot-time">${String(sl.s.hour).padStart(2,'0')}:00 – ${String(sl.e.hour).padStart(2,'0')}:00</div>
-            <div class="slot-dur">${sl.dur} ч · пик <span class="slot-peak" style="color:${peakC}">${sl.max.toFixed(0)}%</span></div>
-          </div>
-        </div>
-        <div class="slot-score">
-          <div class="val" style="color:${c}">${sl.avg.toFixed(1)}%</div>
-          <div class="txt">${scoreLbl(sl.avg)}</div>
-        </div>
-      </div>`;
+      return`<div class="slot-card"><div class="slot-info"><div class="slot-num" style="background:${c}">${i+1}</div><div><div class="slot-date">${sl.date}</div><div class="slot-time">${String(sl.s.hour).padStart(2,'0')}:00 – ${String(sl.e.hour).padStart(2,'0')}:00</div><div class="slot-dur">${sl.dur} ч · пик <span class="slot-peak" style="color:${peakC}">${sl.max.toFixed(0)}%</span></div></div></div><div class="slot-score"><div class="val" style="color:${c}">${sl.avg.toFixed(1)}%</div><div class="txt">${scoreLbl(sl.avg)}</div></div></div>`;
     }).join('')||'<div style="color:var(--text-2);font-size:13px;padding:8px">Хороших слотов не найдено</div>';
 
-    // ИСПРАВЛЕНО: график каждые 3 часа
-    const chartData = hourly.filter((_,i) => i % 3 === 0);
-    document.getElementById('hourly').innerHTML = renderChart(chartData);
+    // Day chart with tabs (5 days, skip yesterday)
+    const days=groupByDay(allHourly).slice(1,6);
+    activeDayIndex=0;
+    renderDayTabs(days);
+    document.getElementById('hourly').innerHTML=renderDayChart(days[0]);
 
     document.getElementById('result').classList.remove('hidden');
   }catch(e){
@@ -322,5 +297,5 @@ async function run(){
   }
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('btn').disabled=false;
-  selectedGeo = null;
+  selectedGeo=null;
 }

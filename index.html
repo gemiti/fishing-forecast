@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0f172a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="manifest.json?v=7">
+<link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%2322c55e'/%3E%3Ctext x='50' y='65' font-size='55' text-anchor='middle'%3E🎣%3C/text%3E%3C/svg%3E">
 <title>Прогноз клёва</title>
 <style>
@@ -50,6 +50,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .slot-score{text-align:right}
 .slot-score .val{font-size:18px;font-weight:700}
 .slot-score .txt{font-size:11px;color:var(--text-2)}
+/* Day tabs */
+.day-tabs{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:12px;scrollbar-width:none}
+.day-tabs::-webkit-scrollbar{display:none}
+.day-tab{flex-shrink:0;text-align:center;padding:10px 16px;border-radius:12px;background:var(--surface);border:1px solid rgba(255,255,255,0.05);cursor:pointer;min-width:56px;transition:all .2s}
+.day-tab .dow{font-size:11px;color:var(--text-2);text-transform:uppercase;letter-spacing:.5px}
+.day-tab .date{font-size:16px;font-weight:700;color:var(--text);margin-top:2px}
+.day-tab.active{background:var(--accent);border-color:var(--accent)}
+.day-tab.active .dow,.day-tab.active .date{color:#fff}
+/* Chart */
 .chart-wrap{background:var(--surface);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.05);padding:16px 12px 8px}
 .hidden{display:none !important}
 .loading{text-align:center;padding:40px;color:var(--text-2);font-size:14px}
@@ -89,11 +98,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="section-title">★ Лучшие слоты</div>
   <div id="slots-list"></div>
 
-  <div class="section-title">48 часов вперёд</div>
+  <div class="section-title">Прогноз по дням</div>
+  <div class="day-tabs" id="day-tabs"></div>
   <div class="chart-wrap" id="hourly"></div>
 </div>
 
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 <script>
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').then(()=>console.log('SW registered'));
