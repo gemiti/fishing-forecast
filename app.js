@@ -121,8 +121,8 @@ function renderDayChart(dayData){
   if(!dayData||!dayData.length)return'';
   const pts=dayData.filter((_,i)=>i%3===0);
   if(!pts.length)return'';
-  const W=800,H=280;
-  const pad={l:48,r:24,t:28,b:50};
+  const W=800,H=320;
+  const pad={l:56,r:24,t:32,b:82};
   const cw=W-pad.l-pad.r;
   const ch=H-pad.t-pad.b;
   const x=i=>pad.l+(i/(pts.length-1))*cw;
@@ -142,15 +142,15 @@ function renderDayChart(dayData){
   [0,25,50,75,100].forEach(t=>{
     const yy=y(t);
     grid+=`M ${pad.l} ${yy} L ${pad.l+cw} ${yy} `;
-    yLabels+=`<text x="${pad.l-10}" y="${yy+5}" text-anchor="end" fill="#94a3b8" font-size="12" font-weight="500">${t}</text>`;
+    yLabels+=`<text x="${pad.l-12}" y="${yy+7}" text-anchor="end" fill="#94a3b8" font-size="22" font-weight="500">${t}</text>`;
   });
 
   let circles='',xLabels='';
   pts.forEach((d,i)=>{
     const px=points[i].x,py=points[i].y;
     const col=scoreCol(d.score);
-    circles+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${col}" stroke="#0f172a" stroke-width="2.5"/>`;
-    xLabels+=`<text x="${px.toFixed(1)}" y="${H-20}" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="500">${String(d.hour).padStart(2,'0')}:00</text>`;
+    circles+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="8" fill="${col}" stroke="#0f172a" stroke-width="3"/>`;
+    xLabels+=`<text x="${px.toFixed(1)}" y="${H-28}" text-anchor="middle" fill="#94a3b8" font-size="22" font-weight="500">${String(d.hour).padStart(2,'0')}:00</text>`;
   });
 
   return`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;">
@@ -166,12 +166,11 @@ function renderDayChart(dayData){
     <path d="${grid}" stroke="rgba(255,255,255,0.08)" stroke-width="1" fill="none"/>
     ${yLabels}
     <path d="${areaD}" fill="url(#areaGrad)"/>
-    <path d="${lineD}" stroke="#e2e8f0" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${lineD}" stroke="#e2e8f0" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     ${circles}
     ${xLabels}
   </svg>`;
 }
-
 // ===== AUTOCOMPLETE =====
 let selectedGeo=null;
 let activeSuggestionIndex=-1;
