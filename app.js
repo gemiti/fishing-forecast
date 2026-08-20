@@ -3,16 +3,14 @@ const S={pressure_trend:{stable:100,slow_rise:50,slow_fall:40,sharp_rise:20,shar
 
 function degToDir(d){const dirs=['N','NE','E','SE','S','SW','W','NW'];return d==null?'calm':dirs[Math.round(d/45)%8]}
 function windCat(dir,spd){if(spd<1)return'calm';if(spd<=4)return(dir=='S'||dir=='SW'||dir=='W')?'light_breeze':'cold_dir';if(spd<=6)return'moderate_warm';if(spd<=10)return'strong';return'storm'}
-
-// ИСПРАВЛЕНО: добавлены все WMO weather codes
 function precipCat(mm,wc){
-  if([95,96,99].includes(wc))return'heavy_rain';           // гроза
-  if([71,73,75,77,85,86].includes(wc))return'sleet';       // снег
-  if([66,67].includes(wc))return'sleet';                     // ледяной дождь
-  if([56,57].includes(wc))return'light_rain';               // ледяная морось
-  if([51,53,55].includes(wc))return'light_rain';             // морось
-  if([61,80].includes(wc))return'light_rain';                // небольшой дождь / ливень
-  if([63,65,81,82].includes(wc))return'heavy_rain';         // дождь / сильный ливень
+  if([95,96,99].includes(wc))return'heavy_rain';
+  if([71,73,75,77,85,86].includes(wc))return'sleet';
+  if([66,67].includes(wc))return'sleet';
+  if([56,57].includes(wc))return'light_rain';
+  if([51,53,55].includes(wc))return'light_rain';
+  if([61,80].includes(wc))return'light_rain';
+  if([63,65,81,82].includes(wc))return'heavy_rain';
   if(mm>5)return'heavy_rain';
   if(mm>0.5)return'light_rain';
   if([45,48].includes(wc))return'fog';
@@ -23,8 +21,6 @@ function precipCat(mm,wc){
 function cloudCat(pct,pc){if(['light_rain','heavy_rain','sleet'].includes(pc))return pc;if(pct<20)return'clear_calm';if(pct<60)return'partly_cloudy';return'overcast'}
 function todCat(h,cc){if(h>=4&&h<7)return'dawn';if(h>=7&&h<11)return(cc=='overcast'||cc=='light_rain')?'overcast_day':'sunny_noon_cool';if(h>=11&&h<16)return(cc=='overcast'||cc=='light_rain')?'overcast_day':'sunny_noon_hot';if(h>=16&&h<19)return(cc=='overcast'||cc=='light_rain')?'overcast_day':'sunny_noon_cool';if(h>=19&&h<21)return'dusk';if(h>=21&&h<23)return'night';return'deep_night'}
 function seasonCat(m){if([3,4,5].includes(m))return'pre_spawn';if([6,7,8].includes(m))return'summer_stable';if([9,10,11].includes(m))return'autumn_feed';return'winter_ice'}
-
-// ИСПРАВЛЕНО: UTC-опорная дата, корректная нормализация
 function moonCat(d){
   const k=Date.UTC(2026,0,1);
   const days=(d.getTime()-k)/86400000;
@@ -38,30 +34,24 @@ function moonCat(d){
   if(age<23)return'last_quarter';
   return'waning';
 }
-
 function heur(c){let t=0;for(let f in W){t+=(S[f][c[f]]||50)*W[f];}return t}
 function scoreCol(s){if(s>=80)return'#22c55e';if(s>=60)return'#84cc16';if(s>=40)return'#f59e0b';if(s>=20)return'#f97316';return'#ef4444'}
 function scoreLbl(s){if(s>=80)return'Отличный';if(s>=60)return'Хороший';if(s>=40)return'Средний';if(s>=20)return'Слабый';return'Почти нет'}
 
-// ИСПРАВЛЕНО: fallback-запрос, сортировка по населению, отображение выбранного города
 async function geo(city,preferredCountry='RU'){
   let url=`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=10&language=ru`;
   let r=await fetch(url);
   let d=await r.json();
-
   if(!d.results||!d.results.length){
     url=`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city+', '+preferredCountry)}&count=10&language=ru`;
     r=await fetch(url);
     d=await r.json();
     if(!d.results||!d.results.length)return null;
   }
-
   const inCountry=d.results.filter(x=>x.country_code===preferredCountry).sort((a,b)=>(b.population||0)-(a.population||0));
   if(inCountry.length)return inCountry[0];
-
   return d.results[0];
 }
-
 async function weather(lat,lon){
   const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,weather_code&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,weather_code&timezone=auto&past_days=1&forecast_days=2`;
   const r=await fetch(url);return r.json();
@@ -98,26 +88,143 @@ function findSlots(hourly){
   return slots.sort((a,b)=>b.avg-a.avg).slice(0,5);
 }
 
+let selectedGeo = null;
+let activeSuggestionIndex = -1;
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+async function suggestCity(query) {
+  const box = document.getElementById('suggestions');
+  if (!query || query.length < 2) {
+    box.classList.add('hidden');
+    return;
+  }
+  box.classList.remove('hidden');
+  box.innerHTML = '<div class="suggestion-loading">Поиск…</div>';
+  activeSuggestionIndex = -1;
+  try {
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=ru`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (!d.results || !d.results.length) {
+      box.innerHTML = '<div class="suggestion-empty">Ничего не найдено</div>';
+      return;
+    }
+    renderSuggestions(d.results);
+  } catch (e) {
+    box.classList.add('hidden');
+  }
+}
+
+function renderSuggestions(results) {
+  const box = document.getElementById('suggestions');
+  box.innerHTML = results.map((x, i) => {
+    const meta = [x.admin1, x.country].filter(Boolean).join(', ');
+    return `<div class="suggestion-item" data-index="${i}" data-json="${encodeURIComponent(JSON.stringify(x))}">
+      <div><div class="suggestion-name">${x.name}</div><div class="suggestion-meta">${meta}</div></div>
+      <div class="suggestion-meta">${x.latitude.toFixed(2)}, ${x.longitude.toFixed(2)}</div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.suggestion-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const data = JSON.parse(decodeURIComponent(el.dataset.json));
+      selectCity(data);
+    });
+    el.addEventListener('mouseenter', () => {
+      activeSuggestionIndex = parseInt(el.dataset.index);
+      updateActiveSuggestion();
+    });
+  });
+}
+
+function updateActiveSuggestion() {
+  const box = document.getElementById('suggestions');
+  box.querySelectorAll('.suggestion-item').forEach((el, i) => {
+    el.classList.toggle('active', i === activeSuggestionIndex);
+  });
+}
+
+function selectCity(result) {
+  selectedGeo = result;
+  document.getElementById('city').value = result.name;
+  document.getElementById('suggestions').classList.add('hidden');
+  activeSuggestionIndex = -1;
+  run();
+}
+
+function hideSuggestions() {
+  document.getElementById('suggestions').classList.add('hidden');
+  activeSuggestionIndex = -1;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('city');
+  const debouncedSuggest = debounce(suggestCity, 300);
+
+  input.addEventListener('input', () => {
+    selectedGeo = null;
+    debouncedSuggest(input.value.trim());
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const box = document.getElementById('suggestions');
+    const items = box.querySelectorAll('.suggestion-item');
+    if (box.classList.contains('hidden') || !items.length) {
+      if (e.key === 'Enter') { e.preventDefault(); run(); }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeSuggestionIndex = (activeSuggestionIndex + 1) % items.length;
+      updateActiveSuggestion();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeSuggestionIndex = (activeSuggestionIndex - 1 + items.length) % items.length;
+      updateActiveSuggestion();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]) {
+        const data = JSON.parse(decodeURIComponent(items[activeSuggestionIndex].dataset.json));
+        selectCity(data);
+      } else if (items.length) {
+        const data = JSON.parse(decodeURIComponent(items[0].dataset.json));
+        selectCity(data);
+      }
+    } else if (e.key === 'Escape') {
+      hideSuggestions();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrap')) hideSuggestions();
+  });
+});
+
 async function run(){
   const city=document.getElementById('city').value.trim();
-  if(!city)return;
+  if(!city && !selectedGeo)return;
   document.getElementById('btn').disabled=true;
   document.getElementById('loading').classList.remove('hidden');
   document.getElementById('result').classList.add('hidden');
   document.getElementById('error').classList.add('hidden');
   try{
-    const g=await geo(city);if(!g)throw new Error('Город не найден');
+    let g = selectedGeo;
+    if(!g) g = await geo(city);
+    if(!g) throw new Error('Город не найден');
     const w=await weather(g.latitude,g.longitude);
     const hourly=calcHourly(w);
     if(!hourly.length)throw new Error('Нет данных');
     const nowSlot=hourly.find(h=>h.hour===new Date().getHours())||hourly[0];
     const score=nowSlot.score;
     const col=scoreCol(score);
-
-    // ИСПРАВЛЕНО: показываем выбранный город
     const locName=[g.name,g.admin1,g.country].filter(Boolean).join(', ');
     document.getElementById('location-name').textContent=locName;
-
     document.getElementById('score-pct').textContent=score.toFixed(1)+'%';
     document.getElementById('score-pct').style.color=col;
     document.getElementById('score-label').textContent=scoreLbl(score);
@@ -135,6 +242,5 @@ async function run(){
   }
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('btn').disabled=false;
+  selectedGeo = null;
 }
-
-// ИСПРАВЛЕНО: не вызываем run() автоматически — ждём действия пользователя

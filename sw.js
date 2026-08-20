@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fishing-v3';
+const CACHE_NAME = 'fishing-v4';
 const urlsToCache = ['./', './index.html', './app.js', './manifest.json'];
 
 self.addEventListener('install', e => {
@@ -15,14 +15,12 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = e.request.url;
-
   if (url.includes('open-meteo.com')) {
     e.respondWith(
       fetch(e.request).catch(() => caches.match(e.request))
     );
     return;
   }
-
   e.respondWith(
     caches.match(e.request).then(r => r || fetch(e.request))
   );
