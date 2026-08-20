@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fishing-v6';
+const CACHE_NAME = 'fishing-v7';
 const urlsToCache = ['./', './index.html', './app.js', './manifest.json'];
 
 self.addEventListener('install', e => {
