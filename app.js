@@ -91,8 +91,8 @@ function findSlots(hourly){
 // ===== SVG CHART =====
 function renderChart(data){
   if(!data.length)return'';
-  const W=800,H=240;
-  const pad={l:42,r:20,t:20,b:55};
+  const W=800,H=280;
+  const pad={l:48,r:24,t:28,b:68};
   const cw=W-pad.l-pad.r;
   const ch=H-pad.t-pad.b;
   const x=i=>pad.l+(i/(data.length-1))*cw;
@@ -109,40 +109,43 @@ function renderChart(data){
   }
   const areaD=lineD+` L ${pts[pts.length-1].x.toFixed(1)} ${pad.t+ch} L ${pts[0].x.toFixed(1)} ${pad.t+ch} Z`;
 
-  // grid + labels
+  // grid + labels (larger font)
   let grid='',yLabels='';
   [0,25,50,75,100].forEach(t=>{
     const yy=y(t);
     grid+=`M ${pad.l} ${yy} L ${pad.l+cw} ${yy} `;
-    yLabels+=`<text x="${pad.l-8}" y="${yy+4}" text-anchor="end" fill="#94a3b8" font-size="10">${t}</text>`;
+    yLabels+=`<text x="${pad.l-10}" y="${yy+5}" text-anchor="end" fill="#94a3b8" font-size="12" font-weight="500">${t}</text>`;
   });
 
-  // points & x labels
+  // points & x labels (larger font)
   let points='',xLabels='';
   data.forEach((d,i)=>{
     const px=pts[i].x,py=pts[i].y;
     const col=scoreCol(d.score);
-    points+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${col}" stroke="#0f172a" stroke-width="2"/>`;
-    xLabels+=`<text x="${px.toFixed(1)}" y="${H-30}" text-anchor="middle" fill="#94a3b8" font-size="10">${String(d.hour).padStart(2,'0')}:00</text>`;
-    xLabels+=`<text x="${px.toFixed(1)}" y="${H-16}" text-anchor="middle" fill="#64748b" font-size="9">${d.day}</text>`;
+    points+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${col}" stroke="#0f172a" stroke-width="2.5"/>`;
+    xLabels+=`<text x="${px.toFixed(1)}" y="${H-38}" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="500">${String(d.hour).padStart(2,'0')}:00</text>`;
+    xLabels+=`<text x="${px.toFixed(1)}" y="${H-18}" text-anchor="middle" fill="#64748b" font-size="11">${d.day}</text>`;
   });
 
+  // dynamic gradient matching score scale
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;">
     <defs>
-      <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#22c55e" stop-opacity="0.25"/>
-        <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+      <linearGradient id="areaGrad" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0%" stop-color="#ef4444" stop-opacity="0.35"/>
+        <stop offset="25%" stop-color="#f97316" stop-opacity="0.30"/>
+        <stop offset="50%" stop-color="#f59e0b" stop-opacity="0.25"/>
+        <stop offset="75%" stop-color="#84cc16" stop-opacity="0.20"/>
+        <stop offset="100%" stop-color="#22c55e" stop-opacity="0.15"/>
       </linearGradient>
     </defs>
-    <path d="${grid}" stroke="rgba(255,255,255,0.06)" stroke-width="1" fill="none"/>
+    <path d="${grid}" stroke="rgba(255,255,255,0.08)" stroke-width="1" fill="none"/>
     ${yLabels}
     <path d="${areaD}" fill="url(#areaGrad)"/>
-    <path d="${lineD}" stroke="#e2e8f0" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${lineD}" stroke="#e2e8f0" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     ${points}
     ${xLabels}
   </svg>`;
 }
-
 let selectedGeo = null;
 let activeSuggestionIndex = -1;
 
