@@ -78,7 +78,6 @@ function calcHourly(data){
   return out;
 }
 
-// ИСПРАВЛЕНО: минимум 3 часа, сортировка по дате, дата в слоте
 function findSlots(hourly){
   const slots=[];let cur=null,scores=[],idx=-1;
   for(let h of hourly){idx++;
@@ -87,6 +86,61 @@ function findSlots(hourly){
   }
   if(cur&&scores.length>=3){slots.push({s:cur,e:hourly[hourly.length-1],avg:scores.reduce((a,b)=>a+b,0)/scores.length,max:Math.max(...scores),dur:scores.length,date:cur.day});}
   return slots.sort((a,b)=>a.s.t-b.s.t).slice(0,5);
+}
+
+// ===== SVG CHART =====
+function renderChart(data){
+  if(!data.length)return'';
+  const W=800,H=240;
+  const pad={l:42,r:20,t:20,b:55};
+  const cw=W-pad.l-pad.r;
+  const ch=H-pad.t-pad.b;
+  const x=i=>pad.l+(i/(data.length-1))*cw;
+  const y=v=>pad.t+ch-(v/100)*ch;
+  const pts=data.map((d,i)=>({x:x(i),y:y(d.score)}));
+
+  // smooth cubic bezier
+  let lineD=`M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for(let i=0;i<pts.length-1;i++){
+    const p0=pts[i===0?0:i-1],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||p2;
+    const cp1x=p1.x+(p2.x-p0.x)/6,cp1y=p1.y+(p2.y-p0.y)/6;
+    const cp2x=p2.x-(p3.x-p1.x)/6,cp2y=p2.y-(p3.y-p1.y)/6;
+    lineD+=` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  const areaD=lineD+` L ${pts[pts.length-1].x.toFixed(1)} ${pad.t+ch} L ${pts[0].x.toFixed(1)} ${pad.t+ch} Z`;
+
+  // grid + labels
+  let grid='',yLabels='';
+  [0,25,50,75,100].forEach(t=>{
+    const yy=y(t);
+    grid+=`M ${pad.l} ${yy} L ${pad.l+cw} ${yy} `;
+    yLabels+=`<text x="${pad.l-8}" y="${yy+4}" text-anchor="end" fill="#94a3b8" font-size="10">${t}</text>`;
+  });
+
+  // points & x labels
+  let points='',xLabels='';
+  data.forEach((d,i)=>{
+    const px=pts[i].x,py=pts[i].y;
+    const col=scoreCol(d.score);
+    points+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${col}" stroke="#0f172a" stroke-width="2"/>`;
+    xLabels+=`<text x="${px.toFixed(1)}" y="${H-30}" text-anchor="middle" fill="#94a3b8" font-size="10">${String(d.hour).padStart(2,'0')}:00</text>`;
+    xLabels+=`<text x="${px.toFixed(1)}" y="${H-16}" text-anchor="middle" fill="#64748b" font-size="9">${d.day}</text>`;
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;">
+    <defs>
+      <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#22c55e" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="${grid}" stroke="rgba(255,255,255,0.06)" stroke-width="1" fill="none"/>
+    ${yLabels}
+    <path d="${areaD}" fill="url(#areaGrad)"/>
+    <path d="${lineD}" stroke="#e2e8f0" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    ${points}
+    ${xLabels}
+  </svg>`;
 }
 
 let selectedGeo = null;
@@ -234,7 +288,6 @@ async function run(){
     const updateTime=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
     document.getElementById('weather-grid').innerHTML=`<div>Давление: <span>${nowSlot.meta.p} мм</span></div><div>Температура: <span>${nowSlot.meta.temp}°C</span></div><div>Ветер: <span>${nowSlot.meta.wind} ${nowSlot.meta.ws} м/с</span></div><div>Облачность: <span>${nowSlot.meta.cc}%</span></div><div>Осадки: <span>${nowSlot.meta.pr} мм/ч</span></div><div>Обновлено: <span>${updateTime}</span></div>`;
 
-    // ИСПРАВЛЕНО: дата над временем, пик цветной и крупный
     const slots=findSlots(hourly);
     document.getElementById('slots-list').innerHTML=slots.map((sl,i)=>{
       const c=scoreCol(sl.avg);
@@ -255,7 +308,10 @@ async function run(){
       </div>`;
     }).join('')||'<div style="color:var(--text-2);font-size:13px;padding:8px">Хороших слотов не найдено</div>';
 
-    document.getElementById('hourly').innerHTML=hourly.map(h=>{const c=scoreCol(h.score);return`<div class="hour-item"><div class="d">${h.day}</div><div class="h">${String(h.hour).padStart(2,'0')}:00</div><div class="bar-bg"><div class="bar-fill" style="height:${h.score}%;background:${c}"></div></div><div class="s" style="color:${c}">${h.score.toFixed(0)}</div></div>`;}).join('');
+    // ИСПРАВЛЕНО: график каждые 3 часа
+    const chartData = hourly.filter((_,i) => i % 3 === 0);
+    document.getElementById('hourly').innerHTML = renderChart(chartData);
+
     document.getElementById('result').classList.remove('hidden');
   }catch(e){
     document.getElementById('error').textContent=e.message;
