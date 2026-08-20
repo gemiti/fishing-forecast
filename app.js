@@ -78,14 +78,15 @@ function calcHourly(data){
   return out;
 }
 
+// ИСПРАВЛЕНО: минимум 3 часа, сортировка по дате, дата в слоте
 function findSlots(hourly){
   const slots=[];let cur=null,scores=[],idx=-1;
   for(let h of hourly){idx++;
     if(h.score>=60){if(!cur)cur=h;scores.push(h.score);}
-    else{if(cur&&scores.length>=2){slots.push({s:cur,e:hourly[idx-1],avg:scores.reduce((a,b)=>a+b,0)/scores.length,max:Math.max(...scores),dur:scores.length});}cur=null;scores=[];}
+    else{if(cur&&scores.length>=3){slots.push({s:cur,e:hourly[idx-1],avg:scores.reduce((a,b)=>a+b,0)/scores.length,max:Math.max(...scores),dur:scores.length,date:cur.day});}cur=null;scores=[];}
   }
-  if(cur&&scores.length>=2){slots.push({s:cur,e:hourly[hourly.length-1],avg:scores.reduce((a,b)=>a+b,0)/scores.length,max:Math.max(...scores),dur:scores.length});}
-  return slots.sort((a,b)=>b.avg-a.avg).slice(0,5);
+  if(cur&&scores.length>=3){slots.push({s:cur,e:hourly[hourly.length-1],avg:scores.reduce((a,b)=>a+b,0)/scores.length,max:Math.max(...scores),dur:scores.length,date:cur.day});}
+  return slots.sort((a,b)=>a.s.t-b.s.t).slice(0,5);
 }
 
 let selectedGeo = null;
@@ -232,8 +233,28 @@ async function run(){
     document.getElementById('score-bar').style.background=col;
     const updateTime=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
     document.getElementById('weather-grid').innerHTML=`<div>Давление: <span>${nowSlot.meta.p} мм</span></div><div>Температура: <span>${nowSlot.meta.temp}°C</span></div><div>Ветер: <span>${nowSlot.meta.wind} ${nowSlot.meta.ws} м/с</span></div><div>Облачность: <span>${nowSlot.meta.cc}%</span></div><div>Осадки: <span>${nowSlot.meta.pr} мм/ч</span></div><div>Обновлено: <span>${updateTime}</span></div>`;
+
+    // ИСПРАВЛЕНО: дата над временем, пик цветной и крупный
     const slots=findSlots(hourly);
-    document.getElementById('slots-list').innerHTML=slots.map((sl,i)=>{const c=scoreCol(sl.avg);return`<div class="slot-card"><div class="slot-info"><div class="slot-num" style="background:${c}">${i+1}</div><div><div class="slot-time">${String(sl.s.hour).padStart(2,'0')}:00 – ${String(sl.e.hour).padStart(2,'0')}:00</div><div class="slot-dur">${sl.dur} ч · пик ${sl.max.toFixed(0)}%</div></div></div><div class="slot-score"><div class="val" style="color:${c}">${sl.avg.toFixed(1)}%</div><div class="txt">${scoreLbl(sl.avg)}</div></div></div>`;}).join('')||'<div style="color:var(--text-2);font-size:13px;padding:8px">Хороших слотов не найдено</div>';
+    document.getElementById('slots-list').innerHTML=slots.map((sl,i)=>{
+      const c=scoreCol(sl.avg);
+      const peakC=scoreCol(sl.max);
+      return`<div class="slot-card">
+        <div class="slot-info">
+          <div class="slot-num" style="background:${c}">${i+1}</div>
+          <div>
+            <div class="slot-date">${sl.date}</div>
+            <div class="slot-time">${String(sl.s.hour).padStart(2,'0')}:00 – ${String(sl.e.hour).padStart(2,'0')}:00</div>
+            <div class="slot-dur">${sl.dur} ч · пик <span class="slot-peak" style="color:${peakC}">${sl.max.toFixed(0)}%</span></div>
+          </div>
+        </div>
+        <div class="slot-score">
+          <div class="val" style="color:${c}">${sl.avg.toFixed(1)}%</div>
+          <div class="txt">${scoreLbl(sl.avg)}</div>
+        </div>
+      </div>`;
+    }).join('')||'<div style="color:var(--text-2);font-size:13px;padding:8px">Хороших слотов не найдено</div>';
+
     document.getElementById('hourly').innerHTML=hourly.map(h=>{const c=scoreCol(h.score);return`<div class="hour-item"><div class="d">${h.day}</div><div class="h">${String(h.hour).padStart(2,'0')}:00</div><div class="bar-bg"><div class="bar-fill" style="height:${h.score}%;background:${c}"></div></div><div class="s" style="color:${c}">${h.score.toFixed(0)}</div></div>`;}).join('');
     document.getElementById('result').classList.remove('hidden');
   }catch(e){
