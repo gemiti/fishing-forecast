@@ -1,12 +1,20 @@
-const CACHE_NAME = 'fishing-v10';
+const CACHE_NAME = 'fishing-v12';
+const urlsToCache = [
+  './', './index.html',
+  './config.js', './utils.js', './heuristics.js',
+  './api.js', './slots.js', './chart.js',
+  './autocomplete.js', './app.js',
+  './manifest.json'
+];
 
 self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
   self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(names => Promise.all(
-    names.map(n => caches.delete(n))
+    names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n))
   )));
   self.clients.claim();
 });
@@ -14,11 +22,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = e.request.url;
   if (url.includes('open-meteo.com')) {
-    e.respondWith(
-      fetch(e.request).catch(() => caches.match(e.request))
-    );
+    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
     return;
   }
-  // Static files always from network, no cache
   e.respondWith(fetch(e.request));
 });
